@@ -1,111 +1,130 @@
-import { redeemCode } from './api.js';
-import { REQUEST_TYPES } from './request-capture.js';
-import { runWithConcurrency } from './shared.js';
-
 const API_URL_PATTERN = 'https://lingsuan.top/api/v1/*';
 const PAGE_ORIGIN = 'https://lingsuan.top';
 const AUTH_STORAGE_KEY = 'lingsuanAuthorization';
-const MAX_CONCURRENCY = 10;
+let authorizationStorageFailed = false;
 
-chrome.webRequest.onBeforeSendHeaders.addListener(
-  (details) => {
-    if (details.initiator !== PAGE_ORIGIN) return;
+function isLingsuanPageUrl(value) {
+  try {
+    return new URL(value).origin === PAGE_ORIGIN;
+  } catch {
+    return false;
+  }
+}
 
-    const authorization = details.requestHeaders?.find(
-      (header) => header.name.toLowerCase() === 'authorization',
-    )?.value;
-    if (!authorization) return;
-
-    chrome.storage.session.set({
-      [AUTH_STORAGE_KEY]: {
-        value: authorization,
-        capturedAt: Date.now(),
-      },
-    });
-  },
-  { urls: [API_URL_PATTERN], types: REQUEST_TYPES },
-  ['requestHeaders', 'extraHeaders'],
-);
-
-function toConcurrency(value) {
-  const parsed = Number.parseInt(value, 10);
-  if (!Number.isInteger(parsed) || parsed < 1) return 1;
-  return Math.min(parsed, MAX_CONCURRENCY);
+function isPopupSender(sender) {
+  return sender?.id === chrome.runtime.id
+    && sender.url === chrome.runtime.getURL('popup.html');
 }
 
 async function getAuthorization() {
   const stored = await chrome.storage.session.get(AUTH_STORAGE_KEY);
-  return stored[AUTH_STORAGE_KEY] ?? null;
+  const authorization = stored[AUTH_STORAGE_KEY];
+  return typeof authorization?.value === 'string' ? authorization : null;
 }
 
-async function getAuthorizationStatus() {
-  const authorization = await getAuthorization();
-  return {
-    captured: Boolean(authorization?.value),
-    capturedAt: authorization?.capturedAt ?? null,
-  };
-}
-
-async function redeemCodes(codes, requestedConcurrency) {
-  const authorization = await getAuthorization();
-  if (!authorization?.value) {
+async function sendRedeemRequest(tabId, codes, concurrency) {
+  if (authorizationStorageFailed) {
     return {
       ok: false,
-      code: 'AUTHORIZATION_NOT_CAPTURED',
-      message: '尚未捕获 Authorization。请先打开并刷新 lingsuan.top 的已登录页面，再重试。',
+      code: 'STORAGE_ERROR',
+      message: '无法保存 Authorization，请重新加载页面后再试。',
     };
   }
 
-  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  const concurrency = toConcurrency(requestedConcurrency);
-  const results = await runWithConcurrency(codes, concurrency, async (code) => {
-    try {
-      const response = await redeemCode({
-        authorization: authorization.value,
-        code,
-        timezone,
-      });
-      return { code, ...response };
-    } catch (error) {
-      return {
-        code,
-        ok: false,
-        status: null,
-        message: error instanceof Error ? error.message : '网络请求失败',
-        data: null,
-      };
-    }
-  });
-
-  return { ok: true, concurrency, results };
-}
-
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (message?.type === 'getAuthorizationStatus') {
-    getAuthorizationStatus().then(sendResponse);
-    return true;
+  let authorization;
+  try {
+    authorization = await getAuthorization();
+  } catch {
+    return {
+      ok: false,
+      code: 'STORAGE_ERROR',
+      message: '无法读取扩展会话状态，请重新加载插件后再试。',
+    };
   }
 
-  if (message?.type === 'redeemCodes') {
-    const codes = Array.isArray(message.codes)
-      ? message.codes.filter((code) => typeof code === 'string' && code.length > 0)
-      : [];
-    if (codes.length === 0) {
-      sendResponse({ ok: false, code: 'EMPTY_CODES', message: '没有可兑换的兑换码。' });
+  if (!authorization) {
+    return {
+      ok: false,
+      code: 'AUTHORIZATION_NOT_CAPTURED',
+      message: '尚未捕获 Authorization。请刷新当前已登录的 lingsuan.top 页面后再试。',
+    };
+  }
+
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    if (!isLingsuanPageUrl(tab.url)) {
+      return {
+        ok: false,
+        code: 'LINGSUAN_PAGE_NOT_ACTIVE',
+        message: '请在已登录的 https://lingsuan.top 页面执行兑换。',
+      };
+    }
+    return await chrome.tabs.sendMessage(tabId, {
+      type: 'redeemCodesInPage',
+      codes,
+      authorization: authorization.value,
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      concurrency,
+    });
+  } catch {
+    return {
+      ok: false,
+      code: 'CONTENT_SCRIPT_UNAVAILABLE',
+      message: '页面脚本尚未加载。请重新加载当前 lingsuan.top 页面后再试。',
+    };
+  }
+}
+
+chrome.webRequest.onBeforeSendHeaders.addListener(
+  (details) => {
+    if (details.initiator !== PAGE_ORIGIN) return;
+    const value = details.requestHeaders?.find(
+      (header) => typeof header.name === 'string'
+        && header.name.toLowerCase() === 'authorization',
+    )?.value;
+    if (!value) return;
+
+    void chrome.storage.session.set({
+      [AUTH_STORAGE_KEY]: { value, capturedAt: Date.now() },
+    }).then(
+      () => {
+        authorizationStorageFailed = false;
+      },
+      () => {
+        authorizationStorageFailed = true;
+      },
+    );
+  },
+  { urls: [API_URL_PATTERN], types: ['xmlhttprequest'] },
+  ['requestHeaders', 'extraHeaders'],
+);
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (!isPopupSender(sender)) return false;
+
+  if (message?.type === 'getAuthorizationStatus') {
+    if (authorizationStorageFailed) {
+      sendResponse({ ok: false, message: '无法保存 Authorization，请重新加载页面后再试。' });
       return false;
     }
 
-    redeemCodes(codes, message.concurrency)
-      .then(sendResponse)
-      .catch((error) => {
-        sendResponse({
-          ok: false,
-          code: 'UNEXPECTED_ERROR',
-          message: error instanceof Error ? error.message : '未知错误',
-        });
-      });
+    getAuthorization()
+      .then((authorization) => sendResponse({
+        ok: true,
+        captured: Boolean(authorization),
+        capturedAt: authorization?.capturedAt ?? null,
+      }))
+      .catch(() => sendResponse({ ok: false, message: '无法读取扩展会话状态，请重新加载插件后再试。' }));
     return true;
   }
 
-  return false;
+  if (message?.type !== 'redeemCodes') return false;
+  const codes = message.codes;
+  if (!Array.isArray(codes) || codes.length === 0 || !Number.isInteger(message.tabId)) {
+    sendResponse({ ok: false, message: '没有可兑换的兑换码或当前页面不可用。' });
+    return false;
+  }
+
+  sendRedeemRequest(message.tabId, codes, message.concurrency).then(sendResponse);
+  return true;
 });

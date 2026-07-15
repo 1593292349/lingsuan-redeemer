@@ -3,8 +3,15 @@
   "name": "灵算批量兑换",
   "version": "1.0.0",
   "description": "按行批量并发兑换灵算兑换码，仅复用当前网站请求中的 Authorization。",
-  "permissions": ["storage", "tabs", "webRequest"],
+  "permissions": ["storage", "webRequest"],
   "host_permissions": ["https://lingsuan.top/*"],
+  "content_scripts": [
+    {
+      "matches": ["https://lingsuan.top/*"],
+      "js": ["content.js"],
+      "run_at": "document_start"
+    }
+  ],
   "background": {
     "service_worker": "background.js",
     "type": "module"

@@ -1,6 +1,17 @@
-import { normalizeCodes } from './shared.js';
-
 const LINGSUAN_ORIGIN = 'https://lingsuan.top';
+
+function normalizeCodes(text) {
+  return text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+}
+
+function isLingsuanPageUrl(value) {
+  try {
+    return new URL(value).origin === LINGSUAN_ORIGIN;
+  } catch {
+    return false;
+  }
+}
+
 const form = document.querySelector('#redeem-form');
 const codesInput = document.querySelector('#codes');
 const concurrencyInput = document.querySelector('#concurrency');
@@ -9,8 +20,9 @@ const refreshButton = document.querySelector('#refresh-page');
 const authStatus = document.querySelector('#auth-status');
 const resultSection = document.querySelector('#result');
 
-async function sendMessage(message) {
-  return chrome.runtime.sendMessage(message);
+async function getActiveLingsuanTab() {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  return Number.isInteger(tab?.id) && isLingsuanPageUrl(tab.url) ? tab : null;
 }
 
 function setAuthorizationStatus(status) {
@@ -28,7 +40,15 @@ function setAuthorizationStatus(status) {
 
 async function refreshAuthorizationStatus() {
   try {
-    setAuthorizationStatus(await sendMessage({ type: 'getAuthorizationStatus' }));
+    const tab = await getActiveLingsuanTab();
+    if (!tab) {
+      setAuthorizationStatus({ captured: false });
+      return;
+    }
+
+    const status = await chrome.runtime.sendMessage({ type: 'getAuthorizationStatus', tabId: tab.id });
+    if (!status.ok) throw new Error(status.message);
+    setAuthorizationStatus(status);
   } catch {
     authStatus.textContent = '无法读取扩展状态，请在 chrome://extensions 重新加载插件。';
     authStatus.className = 'status warn';
@@ -51,32 +71,43 @@ function resultMessage(result) {
 
 function renderResults(response) {
   const successCount = response.results.filter((result) => result.ok).length;
-  resultSection.hidden = false;
-  resultSection.replaceChildren();
-
+  const fragment = document.createDocumentFragment();
   const summary = document.createElement('p');
   summary.className = 'summary';
   summary.textContent = `完成：成功 ${successCount}，失败 ${response.results.length - successCount}，并发 ${response.concurrency}`;
-  resultSection.append(summary);
+  fragment.append(summary);
 
   response.results.forEach((result) => {
     const item = document.createElement('div');
     item.className = `result-item ${result.ok ? 'ok' : 'error'}`;
     item.textContent = `${result.ok ? '成功' : '失败'} · ${result.code} · ${resultMessage(result)}`;
-    resultSection.append(item);
+    fragment.append(item);
   });
+
+  resultSection.hidden = false;
+  resultSection.replaceChildren(fragment);
 }
 
-refreshButton.addEventListener('click', async () => {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab?.id || !tab.url?.startsWith(LINGSUAN_ORIGIN)) {
-    showMessage('请先在当前窗口打开已登录的 https://lingsuan.top/redeem 页面。', true);
-    return;
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName === 'session' && changes.lingsuanAuthorization) {
+    refreshAuthorizationStatus();
   }
+});
 
-  await chrome.tabs.reload(tab.id);
-  authStatus.textContent = '页面正在刷新；加载完成后重新打开插件检查捕获状态。';
-  authStatus.className = 'status';
+refreshButton.addEventListener('click', async () => {
+  try {
+    const tab = await getActiveLingsuanTab();
+    if (!tab) {
+      showMessage('请先在当前窗口打开已登录的 https://lingsuan.top 页面。', true);
+      return;
+    }
+
+    await chrome.tabs.reload(tab.id);
+    authStatus.textContent = '页面正在刷新；Authorization 捕获后会自动更新。';
+    authStatus.className = 'status';
+  } catch {
+    showMessage('无法刷新兑换页面，请稍后重试。', true);
+  }
 });
 
 form.addEventListener('submit', async (event) => {
@@ -90,8 +121,15 @@ form.addEventListener('submit', async (event) => {
   submitButton.disabled = true;
   submitButton.textContent = '兑换中…';
   try {
-    const response = await sendMessage({
+    const tab = await getActiveLingsuanTab();
+    if (!tab) {
+      showMessage('请先在当前窗口打开已登录的 https://lingsuan.top 页面。', true);
+      return;
+    }
+
+    const response = await chrome.runtime.sendMessage({
       type: 'redeemCodes',
+      tabId: tab.id,
       codes,
       concurrency: concurrencyInput.value,
     });
