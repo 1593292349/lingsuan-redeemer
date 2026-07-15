@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>灵算批量兑换</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main>
+      <h1>灵算批量兑换</h1>
+      <p id="auth-status" class="status">正在检查 Authorization…</p>
+      <button id="refresh-page" class="secondary" type="button">刷新灵算页面并捕获 Authorization</button>
+
+      <form id="redeem-form">
+        <label for="codes">兑换码（每行一个）</label>
+        <textarea id="codes" rows="10" placeholder="CODE-001&#10;CODE-002" autofocus></textarea>
+
+        <label for="concurrency">并发数（1–10）</label>
+        <input id="concurrency" type="number" min="1" max="10" value="5" required />
+
+        <button id="submit" class="primary" type="submit">开始兑换</button>
+      </form>
+
+      <section id="result" hidden aria-live="polite"></section>
+    </main>
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>

@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "灵算批量兑换",
+  "version": "1.0.0",
+  "description": "按行批量并发兑换灵算兑换码，仅复用当前网站请求中的 Authorization。",
+  "permissions": ["storage", "tabs", "webRequest"],
+  "host_permissions": ["https://lingsuan.top/*"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "灵算批量兑换",
+    "default_popup": "popup.html"
+  }
+}
