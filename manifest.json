@@ -18,6 +18,11 @@
   },
   "action": {
     "default_title": "灵算批量兑换",
+    "default_icon": {
+      "16": "icons/16-gray.png",
+      "48": "icons/48-gray.png",
+      "128": "icons/128-gray.png"
+    },
     "default_popup": "popup.html"
   }
 }

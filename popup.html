@@ -20,6 +20,9 @@
       .status { margin: 0 0 8px; color: #475569; }
       .status.ok { color: #15803d; }
       .status.warn { color: #b45309; }
+      .unsupported { padding: 18px 16px; border: 1px solid #dbe3ef; border-radius: 7px; background: #fff; text-align: center; }
+      .unsupported-title { margin: 0 0 6px; font-weight: 600; }
+      .unsupported-description { margin: 0; color: #64748b; }
       #result { max-height: 260px; margin-top: 14px; overflow: auto; border: 1px solid #dbe3ef; border-radius: 7px; background: #fff; }
       .summary { margin: 0; padding: 10px; font-weight: 600; }
       .result-item { padding: 8px 10px; border-top: 1px solid #edf2f7; word-break: break-all; }
@@ -30,16 +33,22 @@
   <body>
     <main>
       <h1>灵算批量兑换</h1>
-      <p id="auth-status" class="status">正在检查 Authorization…</p>
-      <button id="refresh-page" class="secondary" type="button">刷新灵算页面并捕获 Authorization</button>
-      <form id="redeem-form">
-        <label for="codes">兑换码（每行一个）</label>
-        <textarea id="codes" rows="10" placeholder="CODE-001&#10;CODE-002" autofocus></textarea>
-        <label for="concurrency">并发数（1–10）</label>
-        <input id="concurrency" type="number" min="1" max="10" value="5" required />
-        <button id="submit" class="primary" type="submit">开始兑换</button>
-      </form>
-      <section id="result" hidden aria-live="polite"></section>
+      <section id="unsupported-page" class="unsupported" hidden>
+        <p class="unsupported-title">当前页面不可用</p>
+        <p class="unsupported-description">本插件需要在 lingsuan.top 页面中使用。</p>
+      </section>
+      <div id="supported-page" hidden>
+        <p id="auth-status" class="status">正在检查 Authorization…</p>
+        <button id="refresh-page" class="secondary" type="button">刷新灵算页面并捕获 Authorization</button>
+        <form id="redeem-form">
+          <label for="codes">兑换码（每行一个）</label>
+          <textarea id="codes" rows="10" placeholder="CODE-001&#10;CODE-002" autofocus></textarea>
+          <label for="concurrency">并发数（1–10）</label>
+          <input id="concurrency" type="number" min="1" max="10" value="5" required />
+          <button id="submit" class="primary" type="submit">开始兑换</button>
+        </form>
+        <section id="result" hidden aria-live="polite"></section>
+      </div>
     </main>
     <script type="module" src="popup.js"></script>
   </body>

@@ -1,5 +1,16 @@
 const API_URL_PATTERN = 'https://lingsuan.top/api/v1/*';
 const PAGE_ORIGIN = 'https://lingsuan.top';
+const ACTION_ICON_BLUE = {
+  16: chrome.runtime.getURL('icons/16.png'),
+  48: chrome.runtime.getURL('icons/48.png'),
+  128: chrome.runtime.getURL('icons/128.png'),
+};
+const ACTION_ICON_GRAY = {
+  16: chrome.runtime.getURL('icons/16-gray.png'),
+  48: chrome.runtime.getURL('icons/48-gray.png'),
+  128: chrome.runtime.getURL('icons/128-gray.png'),
+};
+const ACTION_POPUP = 'popup.html';
 const AUTH_STORAGE_KEY = 'lingsuanAuthorization';
 let authorizationStorageFailed = false;
 
@@ -10,6 +21,58 @@ function isLingsuanPageUrl(value) {
     return false;
   }
 }
+
+async function updateActionForTab(tabId, url) {
+  try {
+    if (!isLingsuanPageUrl(url)) {
+      await Promise.all([
+        chrome.action.setIcon({ tabId, path: ACTION_ICON_GRAY }),
+        chrome.action.setPopup({ tabId, popup: ACTION_POPUP }),
+      ]);
+      await chrome.action.enable(tabId);
+      return;
+    }
+
+    await Promise.all([
+      chrome.action.setIcon({ tabId, path: ACTION_ICON_BLUE }),
+      chrome.action.setPopup({ tabId, popup: ACTION_POPUP }),
+    ]);
+    await chrome.action.enable(tabId);
+  } catch {
+    // 标签页可能在异步更新期间被关闭。
+  }
+}
+
+async function initializeActions() {
+  await Promise.all([
+    chrome.action.setIcon({ path: ACTION_ICON_GRAY }),
+    chrome.action.setPopup({ popup: ACTION_POPUP }),
+  ]);
+  await chrome.action.enable();
+
+  const tabs = await chrome.tabs.query({});
+  await Promise.all(tabs.map((tab) => updateActionForTab(tab.id, tab.url)));
+}
+
+chrome.runtime.onInstalled.addListener(() => {
+  void initializeActions();
+});
+
+chrome.runtime.onStartup.addListener(() => {
+  void initializeActions();
+});
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.status === 'loading' || typeof changeInfo.url === 'string') {
+    void updateActionForTab(tabId, changeInfo.url ?? tab.url);
+  }
+});
+
+chrome.tabs.onActivated.addListener(({ tabId }) => {
+  void chrome.tabs.get(tabId)
+    .then((tab) => updateActionForTab(tabId, tab.url))
+    .catch(() => {});
+});
 
 function isPopupSender(sender) {
   return sender?.id === chrome.runtime.id

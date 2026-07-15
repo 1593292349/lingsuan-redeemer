@@ -12,6 +12,8 @@ function isLingsuanPageUrl(value) {
   }
 }
 
+const supportedPage = document.querySelector('#supported-page');
+const unsupportedPage = document.querySelector('#unsupported-page');
 const form = document.querySelector('#redeem-form');
 const codesInput = document.querySelector('#codes');
 const concurrencyInput = document.querySelector('#concurrency');
@@ -38,18 +40,20 @@ function setAuthorizationStatus(status) {
   authStatus.classList.add('ok');
 }
 
-async function refreshAuthorizationStatus() {
+async function refreshAuthorizationStatus(focusCodes = false) {
   try {
     const tab = await getActiveLingsuanTab();
-    if (!tab) {
-      setAuthorizationStatus({ captured: false });
-      return;
-    }
+    supportedPage.hidden = !tab;
+    unsupportedPage.hidden = Boolean(tab);
+    if (!tab) return;
+    if (focusCodes) codesInput.focus();
 
     const status = await chrome.runtime.sendMessage({ type: 'getAuthorizationStatus', tabId: tab.id });
     if (!status.ok) throw new Error(status.message);
     setAuthorizationStatus(status);
   } catch {
+    supportedPage.hidden = false;
+    unsupportedPage.hidden = true;
     authStatus.textContent = '无法读取扩展状态，请在 chrome://extensions 重新加载插件。';
     authStatus.className = 'status warn';
   }
@@ -148,4 +152,4 @@ form.addEventListener('submit', async (event) => {
   }
 });
 
-refreshAuthorizationStatus();
+refreshAuthorizationStatus(true);
